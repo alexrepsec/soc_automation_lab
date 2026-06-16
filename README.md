@@ -18,9 +18,10 @@ This project demonstrates the deployment of an **AI-powered Security Operations 
  
 ## 🧰 Technologies Used
  
-- **Python 3** — Automation script for traffic capture and alert generation
+- **Python 3.12.3** — Automation script for traffic capture and alert generation
 - **tshark 4.2.2** — CLI packet capture and analysis tool
 - **Airia AI** — AI agent platform (SOC playbook trained agent)
+- **Claude Haiku 4.5** — AI model powering the SOC agent
 - **Ubuntu Server 24.04.4 LTS** — Internal server (victim + detector)
 - **Kali Linux 2025.4** — Attacker machine
 - **VMware Workstation Pro 25H2** — Virtualization platform
@@ -93,9 +94,17 @@ This project demonstrates the deployment of an **AI-powered Security Operations 
  
 ## 🚀 Step 1 — Build the AI Agent on Airia
  
-Sign up at [airia.ai](https://airia.ai) and create a new project. Add an AI model and create a new agent. Paste the contents of `SOC_playbook.txt` as the system prompt. Publish the agent and save the API URL and API Key.
+Sign up at [airia.ai](https://airia.ai) and create a new project. Add an AI model (Claude Haiku 4.5) and create a new agent. Paste the contents of [`soc_playbook/soc_playbook.txt`](soc_playbook/soc_playbook.txt) as the system prompt. Publish the agent and save the API URL and API Key.
  
-![Airia Agent](screenshots/airia-agent.png)
+![Airia Agent](screenshots/ai_soc_agent.png)
+ 
+The SOC playbook is loaded as the agent's instruction set:
+ 
+![Airia Playbook](screenshots/airia_playbook.png)
+ 
+API credentials are managed from the Airia Settings panel:
+ 
+![Airia API](screenshots/airia_api.png)
  
 ---
  
@@ -103,16 +112,23 @@ Sign up at [airia.ai](https://airia.ai) and create a new project. Add an AI mode
  
 Ubuntu Server 24.04 was deployed in VMware as the internal server. Kali Linux 2025.4 VMware image was imported directly without installation. Both VMs were configured on VMware NAT network to ensure inter-VM communication.
  
-```bash
-# Verify connectivity from Ubuntu to Kali
-ping 192.168.248.133
- 
-# Expected output:
-# 64 bytes from 192.168.248.133: icmp_seq=1 ttl=64 time=0.366 ms
-# 20 packets transmitted, 20 received, 0% packet loss
-```
+![VM Overview](screenshots/vm_overview.png)
  
 ![VM Network](screenshots/vm-network.png)
+ 
+Connectivity between both VMs was verified before running the lab:
+ 
+```bash
+# From Ubuntu → Kali
+ping -c 20 192.168.248.133
+```
+ 
+```
+20 packets transmitted, 20 received, 0% packet loss, time 19099ms
+rtt min/avg/max/mdev = 0.461/1.117/2.736/0.540 ms
+```
+ 
+![VM Connectivity](screenshots/vm_connectivity.png)
  
 ---
  
@@ -124,23 +140,25 @@ sudo apt install tshark python3 python3-pip -y
 pip3 install requests --break-system-packages
 ```
  
-Verify tshark installation:
+Verify installations:
  
 ```bash
 tshark --version
-# TShark (Wireshark) 4.2.2
+pip3 show requests && python3 --version && pip3 --version
 ```
  
-![tshark install](screenshots/tshark-install.png)
+![tshark Installation](screenshots/tshark_installation.png)
+ 
+![Python Dependencies](screenshots/python_deps.png)
  
 ---
  
 ## 🐍 Step 4 — Deploy the Python Script
  
-The automation script `soc_capture.py` was created on the Ubuntu Server with the following configuration:
+The automation script [`soc_capture_py/soc_capture.py`](soc_capture_py/soc_capture.py) was created on the Ubuntu Server with the following configuration:
  
 ```python
-INTERFACE = "ens33"          # Network interface
+INTERFACE = "ens33"          # Network interface confirmed with: ip a
 CAPTURE_DURATION = 100       # Capture window in seconds
 THRESHOLD = 40               # Packets to flag as suspicious
 DESTINATION_IP = "192.168.248.134"
@@ -169,8 +187,6 @@ send_to_airia()
     └── Receives SOC triage report
 ```
  
-![Python Script](screenshots/python-script.png)
- 
 ---
  
 ## ⚔️ Step 5 — Simulate the Attack from Kali
@@ -182,11 +198,11 @@ ping -c 200 192.168.248.134
 ```
  
 ```
-200 packets transmitted, 200 received, 0% packet loss, time 201115ms
-rtt min/avg/max/mdev = 0.353/1.241/42.283/3.099 ms
+200 packets transmitted, 200 received, 0% packet loss, time 201067ms
+rtt min/avg/max/mdev = 0.370/1.238/47.911/3.537 ms
 ```
  
-![Kali Attack](screenshots/kali-attack.png)
+![Kali Attack](screenshots/kali_attack.png)
  
 ---
  
@@ -196,23 +212,13 @@ rtt min/avg/max/mdev = 0.353/1.241/42.283/3.099 ms
 sudo python3 soc_capture.py
 ```
  
-The script detected the attack automatically:
+The script started capturing immediately:
  
-```
-[+] Capturing on ens33 for 100s...
-[+] Capture saved to traffic.pcap
-[+] CSV created at traffic.csv
+![Script Running](screenshots/script_running.png)
  
-[+] Traffic volume per source IP:
-  192.168.248.133: 99 packets
+After the capture window completed, the script detected the attack automatically and sent the alert to Airia:
  
-[!] Suspicious IP detected: 192.168.248.133 (99 packets)
-[+] Alert JSON written to alert.json
-[+] Sending alert to Airia SOC Agent...
-[+] Airia responded with status 200
-```
- 
-![Script Output](screenshots/script-output.png)
+![Script Output](screenshots/script_output.png)
  
 ---
  
@@ -222,35 +228,39 @@ The Airia AI agent analyzed the alert and returned a professional SOC triage rep
  
 ```json
 {
-  "alert_id": "SOC-28FE93CD",
-  "threat_classification": "Network Service Scanning",
+  "alert_id": "SOC-AF10923F",
+  "threat_classification": "Network Reconnaissance / Scanning",
   "risk_score": 55,
   "risk_level": "Medium",
   "confidence_level": "High",
   "mitre_mapping": {
-    "tactic": "Discovery",
-    "technique_id": "T1046",
-    "technique_name": "Network Service Scanning"
+    "tactic": "Reconnaissance",
+    "technique_id": "T1018",
+    "technique_name": "Remote System Discovery"
   },
-  "analysis_reasoning": "99 packets detected from external source 192.168.248.133 within a 100-second window. Packet count does not meet critical threshold due to relatively short timeframe. Activity is consistent with network scanning or reachability probing rather than benign network noise.",
+  "analysis_reasoning": "Alert indicates 98 ICMP packets sent to ubuntu-soc-server (192.168.248.134) from 192.168.248.133 within a 100-second window. This pattern is consistent with active network reconnaissance or host discovery probing. The packet count (98) exceeds baseline network noise thresholds (+30 points). ICMP flood behavior pattern identified (+15 points).",
   "recommended_actions": [
-    "Review firewall and network logs for additional context",
-    "Monitor source IP for follow-up suspicious activity",
-    "Verify if ubuntu-soc-server is expected to receive this traffic",
-    "Enrich with threat intelligence databases"
+    "Identify source host 192.168.248.133 through network device logs or DHCP records",
+    "Verify if ubuntu-soc-server is expected scanning target or legitimate monitoring activity",
+    "Enrich with threat intelligence to determine if source IP is known malicious or suspicious",
+    "Monitor destination host (ubuntu-soc-server) for follow-up exploitation attempts",
+    "Review firewall/IDS logs for concurrent suspicious activity from same source",
+    "If source cannot be identified as authorized, block ICMP traffic from 192.168.248.133 pending investigation"
   ],
   "escalation_required": false,
-  "executive_summary": "An internal server received a high volume of ping requests (99 packets in 100 seconds) from a single source. This pattern is consistent with network scanning behavior. The recommendation is to verify if this traffic is expected and monitor for escalation to other attack patterns."
+  "executive_summary": "An internal host (192.168.248.133) sent 98 network probes to an internal server over 100 seconds, consistent with network scanning activity. While the activity is suspicious and warrants investigation to identify the source, it poses moderate rather than critical risk at this time."
 }
 ```
  
-![SOC Report](screenshots/soc-report.png)
+![SOC Report - Airia](screenshots/soc_report.png)
+ 
+![SOC Report - Terminal](screenshots/airia_report.png)
  
 ---
  
 ## 🧠 SOC Playbook Summary
  
-The AI agent was trained with a 10-section SOC playbook:
+The AI agent was trained with a 10-section SOC playbook. Full playbook available at [`soc_playbook/soc_playbook.txt`](soc_playbook/soc_playbook.txt).
  
 | Section | Description |
 |---|---|
@@ -284,22 +294,33 @@ The AI agent was trained with a 10-section SOC playbook:
 ## 📁 Project Structure
  
 ```
-AI-SOC-Analyst-Homelab/
+soc_automation_lab/
 ├── screenshots/
-│   ├── airia-agent.png
-│   ├── kali-attack.png
-│   ├── python-script.png
-│   ├── soc-report.png
-│   ├── script-output.png
-│   ├── tshark-install.png
+│   ├── ai_soc_agent.png
+│   ├── airia_api.png
+│   ├── airia_playbook.png
+│   ├── airia_report.png
+│   ├── kali_attack.png
+│   ├── project_structure.png
+│   ├── python_deps.png
+│   ├── script_output.png
+│   ├── script_running.png
+│   ├── soc_report.png
+│   ├── tshark_installation.png
+│   ├── vm_connectivity.png
+│   ├── vm_overview.png
 │   └── vm-network.png
-├── soc_capture.py
-├── SOC_playbook.txt
+├── soc_capture_py/
+│   └── soc_capture.py
+├── soc_playbook/
+│   └── soc_playbook.txt
 ├── sample_output/
 │   └── sample_alert.json
-├── LICENSE
-└── README.md
+├── README.md
+└── license
 ```
+ 
+![Project Structure](screenshots/project_structure.png)
  
 ---
  
